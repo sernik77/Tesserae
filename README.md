@@ -13,7 +13,7 @@ Tesserae tails logs, runs commands and polls HTTP endpoints. **Rules** parse tha
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════════════════════╗
-║ === [ GENESIS DAEMON CONTROL ] ===  │  UPTIME 00:12:31  │  API online  │  state GENERATING    ║
+║ === [ GENESIS DAEMON CONTROL ] ===  │  UPTIME 00:12:31  │  API online  │  state GENERATING   ║
 ╚══════════════════════════════════════════════════════════════════════════════════════════════╝
 ╭─ [>] INFERENCE ENGINE (llama.cpp) ─────────────╮╭──── tokens / s ────╮╭─ generation speed ─────╮
 │ Prompt     100% ████████████████   987.13 t/s  ││  ▀▀█ ▀▀█   ▀▀█     ││ now 23.31 avg3s 23.29  │
