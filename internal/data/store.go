@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/silverx/tesserae/internal/tmpl"
+	"github.com/sernik77/tesserae/internal/tmpl"
 )
 
 const (

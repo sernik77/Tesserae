@@ -1,4 +1,4 @@
-module github.com/silverx/tesserae
+module github.com/sernik77/tesserae
 
 go 1.27.1
 

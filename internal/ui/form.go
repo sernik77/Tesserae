@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/render"
-	"github.com/silverx/tesserae/internal/tmpl"
+	"github.com/sernik77/tesserae/internal/render"
+	"github.com/sernik77/tesserae/internal/tmpl"
 )
 
 // FieldKind selects the editor used for a form field.

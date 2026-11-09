@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/silverx/tesserae/internal/config"
+	"github.com/sernik77/tesserae/internal/config"
 )
 
 const defaultBackfill = 300

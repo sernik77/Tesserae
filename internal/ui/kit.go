@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/render"
+	"github.com/sernik77/tesserae/internal/render"
 )
 
 // MouseKind classifies a normalized mouse event.

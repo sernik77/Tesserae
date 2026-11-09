@@ -5,8 +5,8 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/render"
-	"github.com/silverx/tesserae/internal/tmpl"
+	"github.com/sernik77/tesserae/internal/render"
+	"github.com/sernik77/tesserae/internal/tmpl"
 )
 
 // Item is a menu entry. An item with neither Action nor Sub is a header when

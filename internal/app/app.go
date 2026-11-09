@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/config"
-	"github.com/silverx/tesserae/internal/data"
-	"github.com/silverx/tesserae/internal/elem"
-	"github.com/silverx/tesserae/internal/render"
-	"github.com/silverx/tesserae/internal/tmpl"
-	"github.com/silverx/tesserae/internal/ui"
+	"github.com/sernik77/tesserae/internal/config"
+	"github.com/sernik77/tesserae/internal/data"
+	"github.com/sernik77/tesserae/internal/elem"
+	"github.com/sernik77/tesserae/internal/render"
+	"github.com/sernik77/tesserae/internal/tmpl"
+	"github.com/sernik77/tesserae/internal/ui"
 )
 
 // Options configure a run.

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/config"
-	"github.com/silverx/tesserae/internal/ui"
+	"github.com/sernik77/tesserae/internal/config"
+	"github.com/sernik77/tesserae/internal/ui"
 )
 
 type harness struct {

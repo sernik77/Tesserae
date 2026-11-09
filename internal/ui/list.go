@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/render"
-	"github.com/silverx/tesserae/internal/tmpl"
+	"github.com/sernik77/tesserae/internal/render"
+	"github.com/sernik77/tesserae/internal/tmpl"
 )
 
 // Row is one entry of a List. Text is markup.

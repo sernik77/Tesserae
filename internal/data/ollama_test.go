@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/silverx/tesserae/internal/config"
+	"github.com/sernik77/tesserae/internal/config"
 )
 
 // TestOllamaExampleReplay feeds the captured llama.cpp log through the rules

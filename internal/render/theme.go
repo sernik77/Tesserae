@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/silverx/tesserae/internal/config"
+	"github.com/sernik77/tesserae/internal/config"
 )
 
 // ColorRoles lists palette roles in the order shown in the editor.
