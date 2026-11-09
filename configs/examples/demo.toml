@@ -1,0 +1,195 @@
+# Tesserae — self-contained demo / control panel. Runs anywhere with bash.
+#
+# A fake service writes log lines; rules parse them into variables and events;
+# buttons talk back to the generator through a control file. Open it with
+# --edit to see how everything is wired (press s for sources, v for variables).
+
+name = "Demo control panel"
+refresh = "500ms"
+
+[theme]
+preset = "catppuccin"
+border = "rounded"
+
+[vars]
+mode = "normal"
+
+[[source]]
+name = "svc"
+type = "stream"
+command = '''
+ctl=${TMPDIR:-/tmp}/tesserae-demo.ctl
+q=10; n=0
+while :; do
+  mode=normal; [ -f "$ctl" ] && mode=$(cat "$ctl")
+  base=40; [ "$mode" = spike ] && base=400; [ "$mode" = calm ] && base=8
+  lat=$(( base + RANDOM % (base / 2 + 1) ))
+  q=$(( q + RANDOM % 7 - 3 )); [ $q -lt 0 ] && q=0; [ "$mode" = spike ] && q=$(( q + 4 ))
+  n=$((n + 1))
+  st=200; [ $((RANDOM % 23)) -eq 0 ] && st=500; [ $((RANDOM % 11)) -eq 0 ] && st=404
+  echo "$(date +%T) INFO req=$n path=/api/v1/item/$((RANDOM % 900)) status=$st latency=${lat}ms queue=$q mode=$mode"
+  [ $st = 500 ] && echo "$(date +%T) ERROR upstream timeout on req=$n"
+  [ $q -gt 25 ] && echo "$(date +%T) WARN queue depth $q above limit"
+  [ $((n % 40)) -eq 0 ] && echo "$(date +%T) INFO checkpoint saved generation=$((n / 40))"
+  sleep 0.2
+done
+'''
+
+[[source.rule]]
+match = 'req=(?P<req>\d+) path=(?P<path>\S+) status=(?P<status>\d+) latency=(?P<latency>\d+)ms queue=(?P<queue>\d+) mode=(?P<mode>\w+)'
+count = "requests"
+
+[[source.rule]]
+match = 'status=5\d\d'
+count = "errors_5xx"
+
+[[source.rule]]
+match = 'ERROR (?P<last_error>.+)'
+event = "[crit::b]ERROR[-] {last_error}"
+stop = true
+
+[[source.rule]]
+match = 'WARN (?P<last_warn>.+)'
+event = "[warn]WARN[-]  {last_warn}"
+stop = true
+
+[[source.rule]]
+match = 'checkpoint saved generation=(?P<generation>\d+)'
+event = "[ok]✓[-] checkpoint [::b]#{generation}[-]"
+
+# ── widgets ──────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "head"
+type = "text"
+x = 0
+y = 0
+w = 0
+h = 3
+border = "thick"
+border_fg = "accent"
+valign = "middle"
+text = "[accent::b]◆ DEMO SERVICE[-]  [muted]mode[-] {mode|upper|style:SPIKE=crit:CALM=ok:*=warn}  [muted]requests[-] [::b]{requests|>6}[-]  [muted]5xx[-] {errors_5xx|default:0|thr:5:20}  [muted]last[-] {path|<22} {status|style:200=ok:404=warn:*=crit}  [muted]{sys.time}[-]"
+
+[[widget]]
+id = "lat_big"
+type = "bignum"
+x = 0
+y = 3
+w = "30%"
+h = 7
+title = "latency ms"
+title_align = "center"
+text = "{latency}"
+var = "latency"
+thresholds = [100.0, 300.0]
+
+[[widget]]
+id = "lat_spark"
+type = "spark"
+x = "30%"
+y = 3
+w = "40%"
+h = 7
+title = "latency trend"
+var = "latency"
+thresholds = [100.0, 300.0]
+text = "[muted]now[-] {latency|>4} ms  {latency|spark:12}"
+
+[[widget]]
+id = "queue"
+type = "gauge"
+x = "70%"
+y = 3
+w = "10%"
+h = 7
+title = "queue"
+title_align = "center"
+var = "queue"
+max = 40.0
+thresholds = [20.0, 30.0]
+text = "{queue}"
+
+[[widget]]
+id = "panel"
+type = "text"
+x = "80%"
+y = 3
+w = 0
+h = 7
+title = "stats"
+text = '''
+[muted]req    [-] {requests|>7}
+[muted]5xx    [-] {errors_5xx|default:0|>7}
+[muted]rate   [-] {errors_5xx|default:0|div:requests|mul:100|%6.2f}%
+[muted]gen    [-] {generation|default:0|>7}
+[muted]svc    [-] {svc.status|style:ok=ok:*=crit}'''
+
+[[widget]]
+id = "events"
+type = "log"
+x = 0
+y = 10
+w = "55%"
+h = -3
+title = "events"
+stream = "events"
+
+[[widget]]
+id = "raw"
+type = "log"
+x = "55%"
+y = 10
+w = 0
+h = -3
+title = "raw · filter: status=[[45]"
+stream = "source:svc"
+filter = 'status=[45]|ERROR'
+text = "{line}"
+
+[[widget]]
+id = "b_spike"
+type = "button"
+x = 0
+y = -3
+w = 18
+h = 3
+text = "⚡ spike"
+action = 'echo spike > ${TMPDIR:-/tmp}/tesserae-demo.ctl && echo "load spike started"'
+key = "1"
+group = "buttons"
+
+[[widget]]
+id = "b_calm"
+type = "button"
+x = 18
+y = -3
+w = 18
+h = 3
+text = "❄ calm"
+action = 'echo calm > ${TMPDIR:-/tmp}/tesserae-demo.ctl && echo "calming down"'
+key = "2"
+group = "buttons"
+
+[[widget]]
+id = "b_normal"
+type = "button"
+x = 36
+y = -3
+w = 18
+h = 3
+text = "↺ normal"
+action = 'rm -f ${TMPDIR:-/tmp}/tesserae-demo.ctl && echo "back to normal"'
+key = "3"
+group = "buttons"
+
+[[widget]]
+id = "hint"
+type = "text"
+x = 54
+y = -3
+w = 0
+h = 3
+border = "none"
+valign = "middle"
+text = "  [muted]keys 1 2 3 or click · q quit · --edit to rebuild this panel[-]"

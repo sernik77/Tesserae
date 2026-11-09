@@ -1,0 +1,22 @@
+# Build output
+/tesserae
+*.exe
+*.test
+*.out
+/dist/
+
+# Backups / archives
+*.tar.gz
+*.bak
+*.orig
+
+# Agent / local tooling notes
+agent.md
+.claude/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,184 @@
+# Tesserae — Linux system monitor built from /proc. No dependencies.
+# Every geometry is in percent, so the layout follows the terminal size.
+
+name = "System"
+refresh = "1s"
+units = "percent"
+
+[theme]
+preset = "tokyonight"
+border = "rounded"
+
+# One long-running shell loop prints key=value lines every second; format kv
+# turns them into host.cpu, host.mem_pct, host.rx_rate …
+[[source]]
+name = "host"
+type = "stream"
+format = "kv"
+command = '''
+pi=0; pt=0; prx=0; ptx=0
+while :; do
+  read -r _ u n s i w q sq st _ < /proc/stat
+  idle=$((i + w)); total=$((u + n + s + i + w + q + sq + st))
+  [ $pt -gt 0 ] && echo "cpu=$(( 100 * ((total - pt) - (idle - pi)) / (total - pt) ))"
+  pi=$idle; pt=$total
+  awk '/^MemTotal/{t=$2} /^MemAvailable/{a=$2} /^SwapTotal/{st=$2} /^SwapFree/{sf=$2}
+       END{printf "mem_total=%d\nmem_used=%d\nmem_pct=%d\nswap_used=%d\n", t*1024, (t-a)*1024, (t-a)*100/t, (st-sf)*1024}' /proc/meminfo
+  read -r l1 l5 l15 pr _ < /proc/loadavg
+  printf 'load1=%s\nload5=%s\nload15=%s\nprocs=%s\n' "$l1" "$l5" "$l15" "$pr"
+  printf 'uptime=%s\ncores=%s\n' "$(cut -d' ' -f1 /proc/uptime)" "$(nproc)"
+  df -P / | awk 'NR==2 {gsub("%","",$5); print "disk_pct=" $5; print "disk_used=" $3*1024; print "disk_total=" $2*1024}'
+  set -- $(awk -F'[: ]+' 'NR > 2 && $2 != "lo" {rx += $3; tx += $11} END {print rx+0, tx+0}' /proc/net/dev)
+  [ $prx -gt 0 ] && printf 'rx_rate=%s\ntx_rate=%s\n' $(( $1 - prx )) $(( $2 - ptx ))
+  prx=$1; ptx=$2
+  sleep 1
+done
+'''
+
+[[source]]
+name = "top"
+type = "exec"
+interval = "2s"
+command = "ps -eo pcpu,pmem,rss,comm --sort=-pcpu --no-headers | head -12"
+
+[[source]]
+name = "journal"
+type = "stream"
+command = "journalctl -f -n 40 -o short --no-hostname 2>&1"
+
+[[source.rule]]
+match = '(?i)\b(error|failed|fatal|panic)\b'
+event = "[crit]●[-] {0}"
+count = "journal_errors"
+
+# ── widgets ──────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "title"
+type = "text"
+x = "0%"
+y = "0%"
+w = "100%"
+h = 1
+border = "none"
+text = " [primary::b]◆ {sys.host}[-]  [muted]{sys.datetime} · up {host.uptime|dur} · {host.cores} cores · {host.procs} procs[-]"
+
+[[widget]]
+id = "cpu_big"
+type = "bignum"
+x = "0%"
+y = 1
+w = "20%"
+h = 7
+title = "CPU"
+title_align = "center"
+text = "{host.cpu|%.0f}%"
+var = "host.cpu"
+thresholds = [60.0, 90.0]
+
+[[widget]]
+id = "cpu_trend"
+type = "spark"
+x = "20%"
+y = 1
+w = "40%"
+h = 7
+title = "cpu history"
+var = "host.cpu"
+max = 100.0
+thresholds = [60.0, 90.0]
+text = "[muted]load[-] {host.load1} {host.load5} {host.load15}"
+
+[[widget]]
+id = "bars"
+type = "box"
+x = "60%"
+y = 1
+w = "40%"
+h = 7
+title = "resources"
+group = "res"
+
+[[widget]]
+id = "mem"
+type = "gauge"
+x = "60%+2"
+y = 2
+w = "40%-4"
+h = 1
+border = "none"
+var = "host.mem_pct"
+thresholds = [75.0, 90.0]
+text = "[muted]mem [-]{host.mem_used|bytes|>9}"
+group = "res"
+
+[[widget]]
+id = "disk"
+type = "gauge"
+x = "60%+2"
+y = 4
+w = "40%-4"
+h = 1
+border = "none"
+var = "host.disk_pct"
+thresholds = [80.0, 95.0]
+text = "[muted]disk[-] {host.disk_used|bytes|>9}"
+group = "res"
+
+[[widget]]
+id = "cpu_bar"
+type = "gauge"
+x = "60%+2"
+y = 6
+w = "40%-4"
+h = 1
+border = "none"
+var = "host.cpu"
+thresholds = [60.0, 90.0]
+text = "[muted]cpu [-]{host.cpu|>8}%"
+group = "res"
+
+[[widget]]
+id = "net"
+type = "spark"
+x = "0%"
+y = 8
+w = "50%"
+h = 6
+title = "network ↓"
+var = "host.rx_rate"
+text = "[ok]↓ {host.rx_rate|bytes|>10}/s[-]  [accent]↑ {host.tx_rate|bytes|>10}/s[-]"
+
+[[widget]]
+id = "net_up"
+type = "spark"
+x = "50%"
+y = 8
+w = "50%"
+h = 6
+title = "network ↑"
+var = "host.tx_rate"
+fg = "accent"
+text = "[muted]swap used[-] {host.swap_used|bytes}"
+
+[[widget]]
+id = "top"
+type = "log"
+x = "0%"
+y = 14
+w = "40%"
+h = 0
+title = "top processes  [muted]%cpu %mem rss name[-]"
+stream = "source:top"
+text = "{line}"
+
+[[widget]]
+id = "journal"
+type = "log"
+x = "40%"
+y = 14
+w = "60%"
+h = 0
+title = "journal · errors: {journal_errors|default:0}"
+stream = "source:journal"
+text = "{line}"

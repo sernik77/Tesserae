@@ -1,0 +1,349 @@
+# Tesserae — Ollama / llama.cpp control panel.
+#
+# A port of od.zsh: one tail of the server log is parsed by regex rules into
+# variables and an event feed; GPU stats come from sysfs (AMD) and model state
+# from the Ollama HTTP API. Every widget only redraws its own cells.
+#
+#   tesserae configs/examples/ollama.toml          run
+#   tesserae --edit configs/examples/ollama.toml   rearrange / extend it in the TUI
+#   tesserae --probe 3s configs/examples/ollama.toml   print all parsed variables
+
+name = "Genesis Daemon Control"
+refresh = "1s"
+
+[theme]
+preset = "tesserae"
+border = "rounded"
+
+[vars]
+state = "waiting"
+model_name = "—"
+prog = "0"
+pp_tps = "0"
+n_gen = "0"
+tg = "0"
+tg3s = "0"
+ckpt_size = "0 MiB"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sources
+# ──────────────────────────────────────────────────────────────────────────────
+
+[[source]]
+name = "log"
+type = "tail"
+path = "/var/log/ollama.log"
+backfill = 30000
+
+# daemon & model lifecycle
+[[source.rule]]
+match = 'msg="server listening"'
+event = "[ok::b]Ollama daemon listening[-]"
+stop = true
+
+[[source.rule]]
+match = 'msg="loading model.*model=\S*?(?P<model_blob>sha256-[0-9a-f]{12})'
+event = "[secondary::b]Loading model[-] {model_blob}…"
+set = { state = "loading" }
+stop = true
+
+[[source.rule]]
+match = 'general\.name\s+str\s+=\s+(?P<model_name>.+)$'
+stop = true
+
+[[source.rule]]
+match = 'msg="loaded runners" count=(?P<runners>\d+)'
+event = "[ok]Runner ready[-] [muted]({runners} loaded)[-]"
+stop = true
+
+# sampler parameters
+[[source.rule]]
+match = 'top_k = (?P<top_k>\d+), top_p = (?P<top_p>[\d.]+), min_p = (?P<min_p>[\d.]+).*temp = (?P<temp>[\d.]+)'
+stop = true
+
+[[source.rule]]
+match = 'repeat_last_n = \d+, repeat_penalty = (?P<rep_pen>[\d.]+)'
+stop = true
+
+[[source.rule]]
+match = 'n_ctx_slot = (?P<ctx_slot>\d+)'
+
+[[source.rule]]
+match = 'new prompt, .*task\.n_tokens = (?P<prompt_tokens>\d+)'
+set = { state = "prefill" }
+stop = true
+
+# prompt processing & K/V cache
+[[source.rule]]
+match = 'progress = (?P<prog>[\d.]+).*?(?P<pp_tps>[\d.]+) tokens per second'
+set = { state = "prefill" }
+stop = true
+
+[[source.rule]]
+match = 'created context checkpoint.*size = (?P<ckpt_size>[\d.]+ MiB)'
+event = "[accent]K/V checkpoint allocated[-] {ckpt_size}"
+count = "checkpoints"
+stop = true
+
+[[source.rule]]
+match = 'restored context checkpoint'
+event = "[ok]Cache hit[-] restored K/V slot from RAM"
+count = "cache_hits"
+stop = true
+
+# generation
+[[source.rule]]
+match = 'n_gen =\s+(?P<n_gen>\d+), tg =\s+(?P<tg>[\d.]+) t/s, tg_3s =\s+(?P<tg3s>[\d.]+)'
+set = { state = "generating" }
+stop = true
+
+# timers (order matters: "prompt eval time" before "eval time")
+[[source.rule]]
+match = 'prompt eval time =\s+(?P<prompt_eval_ms>[\d.]+) ms /\s+(?P<prompt_eval_tokens>\d+) tokens.*?(?P<prompt_eval_tps>[\d.]+) tokens per second'
+stop = true
+
+[[source.rule]]
+match = '\beval time =\s+(?P<eval_ms>[\d.]+) ms /\s+(?P<eval_tokens>\d+) tokens.*?(?P<eval_tps>[\d.]+) tokens per second'
+stop = true
+
+[[source.rule]]
+match = 'total time =\s+(?P<total_ms>[\d.]+) ms /\s+(?P<total_tokens>\d+) tokens'
+event = "[ok]✓ Request done[-] {total_ms|div:1000|%.1f}s · {eval_tokens} tokens @ {eval_tps|%.1f} t/s"
+count = "requests_done"
+stop = true
+
+[[source.rule]]
+match = 'stop processing: n_tokens = (?P<ctx_used>\d+)'
+stop = true
+
+[[source.rule]]
+match = 'all slots are idle'
+set = { state = "idle" }
+stop = true
+
+# HTTP API access log (our own /api/ps polling is ignored)
+[[source.rule]]
+match = '\[GIN\].*"/api/ps"'
+stop = true
+
+[[source.rule]]
+match = '\[GIN\] \S+ - \S+ \| (?P<http_code>\d{3}) \|\s+(?P<http_time>\S+) \|\s+(?P<http_client>\S+) \| (?P<http_method>\w+)\s+"(?P<http_path>[^"]+)"'
+event = "[warn]API[-] {http_code|style:200=ok:*=crit} {http_method|<4} {http_path} [muted]in {http_time}[-]"
+count = "http_requests"
+stop = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+[[source]]
+name = "gpu"
+type = "exec"
+interval = "1s"
+format = "kv"
+command = '''
+d=""
+for c in /sys/class/drm/card*/device; do [ -r "$c/gpu_busy_percent" ] && d=$c && break; done
+[ -z "$d" ] && { echo "no AMD GPU in sysfs" >&2; exit 1; }
+used=$(cat $d/mem_info_vram_used); total=$(cat $d/mem_info_vram_total)
+echo "load=$(cat $d/gpu_busy_percent)"
+echo "temp=$(( $(cat $d/hwmon/hwmon*/temp1_input | head -1) / 1000 ))"
+echo "vram_used=$used"
+echo "vram_total=$total"
+echo "vram_pct=$(( used * 100 / total ))"
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+[[source]]
+name = "ollama"
+type = "http"
+url = "http://127.0.0.1:11434/api/ps"
+interval = "3s"
+format = "json"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Widgets
+# ──────────────────────────────────────────────────────────────────────────────
+
+[[widget]]
+id = "header"
+type = "text"
+x = 0
+y = 0
+w = 0
+h = 3
+border = "double"
+border_fg = "primary"
+text = "[primary::b]=== [[ GENESIS DAEMON CONTROL ] ===[-]  [border]│[-]  [::b]UPTIME[-] {sys.uptime}  [border]│[-]  [muted]{sys.date}[-] {sys.time}  [border]│[-]  API {ollama.status|map:ok=online:error=OFFLINE:*=waiting|style:online=ok:OFFLINE=crit:*=warn}  [border]│[-]  state {state|upper|style:GENERATING=ok:PREFILL=warn:LOADING=secondary:*=muted}"
+valign = "middle"
+
+[[widget]]
+id = "system"
+type = "text"
+x = 0
+y = 3
+w = "50%"
+h = 7
+title = "[!] SYSTEM & HARDWARE"
+title_fg = "secondary"
+text = '''
+[muted]Active model [-] [::b]{ollama.models.0.name|default:no model loaded|<28}[-] [muted]Quant[-] [ok]{ollama.models.0.details.quantization_level|default:N/A}[-]
+[muted]Model name   [-] {model_name|trunc:40}
+[muted]Memory map   [-] [muted]disk[-] [::b]{ollama.models.0.size|bytes|default:—|>10}[-] [border]│[-] [muted]VRAM locked[-] [warn::b]{ollama.models.0.size_vram|bytes|default:—}[-]
+[muted]GPU status   [-] [muted]use[-] {gpu.load|thr:60:90|>3}% [border]│[-] [muted]temp[-] {gpu.temp|thr:75:90|>3}°C [border]│[-] [muted]VRAM[-] [accent::b]{gpu.vram_pct}%[-] [muted]({gpu.vram_used|bytes} / {gpu.vram_total|bytes})[-]
+[muted]Context slot [-] {ctx_slot|default:—} [muted]tokens · expires[-] {ollama.models.0.expires_at|trunc:19|default:—}'''
+
+[[widget]]
+id = "gpu_box"
+type = "box"
+x = "50%"
+y = 3
+w = 0
+h = 7
+title = "GPU (ROCm / sysfs)"
+title_fg = "secondary"
+group = "gpu"
+
+[[widget]]
+id = "gpu_load"
+type = "gauge"
+x = "50%+2"
+y = 4
+w = -2
+h = 1
+border = "none"
+var = "gpu.load"
+max = 100.0
+thresholds = [60.0, 90.0]
+text = "[muted]load[-] {gpu.load|>3}%"
+group = "gpu"
+
+[[widget]]
+id = "gpu_temp"
+type = "gauge"
+x = "50%+2"
+y = 6
+w = -2
+h = 1
+border = "none"
+var = "gpu.temp"
+min = 20.0
+max = 100.0
+thresholds = [75.0, 90.0]
+text = "[muted]temp[-] {gpu.temp|>3}°C"
+group = "gpu"
+
+[[widget]]
+id = "gpu_vram"
+type = "gauge"
+x = "50%+2"
+y = 8
+w = -2
+h = 1
+border = "none"
+var = "gpu.vram_pct"
+max = 100.0
+thresholds = [80.0, 95.0]
+text = "[muted]vram[-] {gpu.vram_pct|>3}%"
+group = "gpu"
+
+[[widget]]
+id = "engine"
+type = "text"
+x = 0
+y = 10
+w = "50%"
+h = 8
+title = "[>] INFERENCE ENGINE (llama.cpp)"
+title_fg = "ok"
+text = '''
+[muted]Sampler   [-] [muted]temp[-] [::b]{temp|default:N/A|<6}[-] [muted]top-k[-] [::b]{top_k|default:N/A|<5}[-] [muted]top-p[-] [::b]{top_p|default:N/A|<6}[-] [muted]rep[-] [::b]{rep_pen|default:N/A}[-]
+[muted]Prompt    [-] [warn::b]{prog|mul:100|%3.0f}%[-] [muted]{prog|bar:16:1}[-] [::b]{pp_tps|%8.2f}[-] [muted]t/s[-]
+[muted]Generation[-] [ok::b]{n_gen|>6}[-] [border]->[-] [::b]{tg|%8.2f}[-] [muted]t/s (3s avg {tg3s|%.2f})[-]
+[muted]Context   [-] [accent::b]{ctx_used|default:0}[-] / {ctx_slot|default:—} [muted]({ctx_used|div:ctx_slot|mul:100|%.1f}%) · ckpt[-] {ckpt_size} [muted]×{checkpoints|default:0} · hits {cache_hits|default:0}[-]
+[muted]Timers    [-] [muted]prompt[-] {prompt_eval_ms|div:1000|%.2f}s [muted]eval[-] {eval_ms|div:1000|%.2f}s [muted]total[-] {total_ms|div:1000|%.2f}s
+[muted]Requests  [-] {requests_done|default:0} done · {http_requests|default:0} http · last {http_code|default:---|style:200=ok:---=muted:*=crit} {http_method|default:} {http_path|default:}'''
+
+[[widget]]
+id = "tps_big"
+type = "bignum"
+x = "50%"
+y = 10
+w = "25%"
+h = 8
+title = "tokens / s"
+title_align = "center"
+text = "{tg|%.1f}"
+var = "tg"
+thresholds = [10.0, 15.0]
+invert = true
+
+[[widget]]
+id = "tps_trend"
+type = "spark"
+x = "75%"
+y = 10
+w = 0
+h = 8
+title = "generation speed"
+var = "tg"
+thresholds = [10.0, 15.0]
+invert = true
+text = "[muted]now[-] {tg|%.2f} [muted]avg3s[-] {tg3s|%.2f}"
+
+[[widget]]
+id = "events"
+type = "log"
+x = 0
+y = 18
+w = "65%"
+h = -3
+title = "[@] LIVE EVENT LOG"
+title_fg = "accent"
+stream = "events"
+
+[[widget]]
+id = "raw"
+type = "log"
+x = "65%"
+y = 18
+w = 0
+h = -3
+title = "raw log"
+stream = "source:log"
+filter = '!"/api/ps"'
+
+text = "{line}"
+
+[[widget]]
+id = "btn_ps"
+type = "button"
+x = 0
+y = -3
+w = 20
+h = 3
+text = "ollama ps"
+action = "ollama ps | sed -n 2p"
+key = "p"
+group = "controls"
+
+[[widget]]
+id = "btn_unload"
+type = "button"
+x = 20
+y = -3
+w = 22
+h = 3
+text = "unload model"
+action = '''curl -s http://127.0.0.1:11434/api/generate -d '{"model":"{ollama.models.0.name}","keep_alive":0}' >/dev/null && echo unloaded {ollama.models.0.name}'''
+key = "u"
+confirm = true
+group = "controls"
+
+[[widget]]
+id = "status_line"
+type = "text"
+x = 42
+y = -3
+w = 0
+h = 3
+border = "none"
+valign = "middle"
+text = " [muted]log[-] {log.status|style:ok=ok:*=crit} {log.lines} lines   [muted]gpu[-] {gpu.status|style:ok=ok:*=crit}   [muted]api[-] {ollama.status|style:ok=ok:*=crit} {ollama.code|default:}   [muted]actions:[-] {btn_ps.output|default:press p / u|trunc:40}"
