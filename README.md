@@ -2,7 +2,12 @@
 
 Universal, fully configurable **TUI dashboards and control panels**, built and edited inside the terminal.
 
+## Example Ollama Dashboard
 <img width="1278" height="1030" alt="image" src="https://github.com/user-attachments/assets/f2416ef4-5b7a-41e3-acd3-85ce9613f54a" />
+
+#### Edit mode context menu & Widget properties
+<img width="538" height="375" alt="image" src="https://github.com/user-attachments/assets/39bf0680-8fd4-4712-84bb-50b88cbe76fc" />
+<img width="290" height="375" alt="image" src="https://github.com/user-attachments/assets/1a65b2c0-7f01-494c-a852-6292944e513f" />
 
 Tesserae tails logs, runs commands and polls HTTP endpoints. **Rules** parse that text into **variables**, and **widgets** show the variables at fixed places on the screen. Only the cells that change are redrawn, so numbers update in place and nothing jumps around. Start it with `--edit` to build the dashboard with the mouse: drag a rectangle anywhere to add a widget, right-click anything for its context menu.
 
